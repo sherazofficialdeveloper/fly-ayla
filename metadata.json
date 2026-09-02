@@ -1,0 +1,6 @@
+{
+  "name": "Fly Ayla – Private Aviation Platform",
+  "description": "Luxury private aviation platform featuring operational cost intelligence, flight routing, quotation and invoice systems, customer VIP portal, admin operations, and PAYLA FORENSIC payment monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
