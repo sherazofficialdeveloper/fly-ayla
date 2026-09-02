@@ -1,38 +1,33 @@
+
 /**
  * Fly Ayla Centralized API Client
  *
- * Frontend: Next.js
- * Backend: Railway
+ * Backend API:
+ * https://fly-ayla.up.railway.app/api
  *
- * Environment variable:
- * NEXT_PUBLIC_API_URL=https://fly-ayla.up.railway.app/api
+ * Environment Variable:
+ * VITE_API_URL=https://fly-ayla.up.railway.app/api
  */
 
 // -----------------------------------------------------
 // API BASE URL
 // -----------------------------------------------------
 
-const getApiBaseUrl = () => {
-  // Next.js public environment variable
-  const envUrl =
-    typeof process !== 'undefined'
-      ? process.env.NEXT_PUBLIC_API_URL
-      : undefined;
+const getApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_URL;
 
-  if (envUrl) {
-    return envUrl.replace(/\/api\/?$/, '');
+  if (!envUrl) {
+    throw new Error(
+      '[Fly Ayla API] VITE_API_URL environment variable is not configured.'
+    );
   }
 
-  // Server-side fallback for local development
-  if (
-    typeof process !== 'undefined' &&
-    process.env.INTERNAL_API_URL
-  ) {
-    return process.env.INTERNAL_API_URL.replace(/\/api\/?$/, '');
-  }
-
-  // Local backend fallback
-  return 'http://127.0.0.1:5000';
+  // Remove trailing slash
+  // and remove /api because the client adds /api automatically.
+  return envUrl
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api\/?$/, '');
 };
 
 const BASE_URL = getApiBaseUrl();
@@ -43,7 +38,7 @@ const BASE_URL = getApiBaseUrl();
 
 let accessToken: string | null = null;
 
-export const setAccessToken = (token: string | null) => {
+export const setAccessToken = (token: string | null): void => {
   accessToken = token;
 
   if (typeof window === 'undefined') {
@@ -71,11 +66,13 @@ export const getAccessToken = (): string | null => {
   }
 
   try {
-    const saved = localStorage.getItem('fly_ayla_access_token');
+    const savedToken = localStorage.getItem(
+      'fly_ayla_access_token'
+    );
 
-    if (saved) {
-      accessToken = saved;
-      return saved;
+    if (savedToken) {
+      accessToken = savedToken;
+      return savedToken;
     }
   } catch {
     // Ignore localStorage errors
@@ -97,23 +94,26 @@ interface RequestOptions extends RequestInit {
 // -----------------------------------------------------
 
 const normalizeEndpoint = (endpoint: string): string => {
-  // Absolute URL
+  // If a complete URL is provided, use it directly.
   if (/^https?:\/\//i.test(endpoint)) {
     return endpoint;
   }
 
-  let normalized = endpoint.trim();
+  let normalizedEndpoint = endpoint.trim();
 
-  if (!normalized.startsWith('/')) {
-    normalized = `/${normalized}`;
+  if (!normalizedEndpoint.startsWith('/')) {
+    normalizedEndpoint = `/${normalizedEndpoint}`;
   }
 
-  // Add /api only if it is not already present
-  if (!normalized.startsWith('/api/')) {
-    normalized = `/api${normalized}`;
+  // Make sure /api is present exactly once.
+  if (
+    normalizedEndpoint !== '/api' &&
+    !normalizedEndpoint.startsWith('/api/')
+  ) {
+    normalizedEndpoint = `/api${normalizedEndpoint}`;
   }
 
-  return normalized;
+  return normalizedEndpoint;
 };
 
 // -----------------------------------------------------
@@ -131,7 +131,6 @@ export async function apiClient<T = any>(
 }> {
   const normalizedEndpoint = normalizeEndpoint(endpoint);
 
-  // Build final URL
   const url = /^https?:\/\//i.test(normalizedEndpoint)
     ? normalizedEndpoint
     : `${BASE_URL}${normalizedEndpoint}`;
@@ -146,7 +145,7 @@ export async function apiClient<T = any>(
   };
 
   // ---------------------------------------------------
-  // AUTH TOKEN
+  // AUTHORIZATION
   // ---------------------------------------------------
 
   const currentToken = getAccessToken();
@@ -165,7 +164,8 @@ export async function apiClient<T = any>(
     credentials: 'include',
   };
 
-  // Remove custom property before passing to fetch
+  // skipAuth is our custom option.
+  // It must not be passed to fetch().
   delete (fetchOptions as RequestOptions).skipAuth;
 
   try {
@@ -176,7 +176,7 @@ export async function apiClient<T = any>(
     let response = await fetch(url, fetchOptions);
 
     // -------------------------------------------------
-    // SILENT TOKEN REFRESH
+    // TOKEN REFRESH
     // -------------------------------------------------
 
     if (
@@ -189,7 +189,7 @@ export async function apiClient<T = any>(
       try {
         const refreshUrl = `${BASE_URL}/api/auth/refresh`;
 
-        const refreshRes = await fetch(refreshUrl, {
+        const refreshResponse = await fetch(refreshUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -197,14 +197,17 @@ export async function apiClient<T = any>(
           credentials: 'include',
         });
 
-        if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
+        if (refreshResponse.ok) {
+          const refreshData =
+            await refreshResponse.json();
 
           if (
             refreshData.success &&
             refreshData.data?.accessToken
           ) {
-            setAccessToken(refreshData.data.accessToken);
+            setAccessToken(
+              refreshData.data.accessToken
+            );
 
             headers.Authorization =
               `Bearer ${refreshData.data.accessToken}`;
@@ -226,7 +229,9 @@ export async function apiClient<T = any>(
     // RESPONSE
     // -------------------------------------------------
 
-    const data = await response.json().catch(() => ({}));
+    const data = await response
+      .json()
+      .catch(() => ({}));
 
     if (!response.ok) {
       return {
@@ -235,29 +240,32 @@ export async function apiClient<T = any>(
           data.message ||
           data.error ||
           `Request failed with status ${response.status}`,
-        error: data.error || data.message,
+        error:
+          data.error ||
+          data.message,
       };
     }
 
     return data;
   } catch (error: any) {
-    const isNetwork =
+    const isNetworkError =
       error?.message?.includes('Failed to fetch') ||
       error?.name === 'TypeError' ||
       error?.message?.includes('NetworkError');
 
     return {
       success: false,
-      message: isNetwork
+      message: isNetworkError
         ? 'Unable to connect to Fly Ayla flight servers. Please check your network connection.'
-        : error?.message || 'Network connection failed',
+        : error?.message ||
+          'Network connection failed',
       error: error?.message,
     };
   }
 }
 
 // -----------------------------------------------------
-// OPTIONAL HTTP HELPERS
+// GET
 // -----------------------------------------------------
 
 export const apiGet = <T = any>(
@@ -270,6 +278,10 @@ export const apiGet = <T = any>(
   });
 };
 
+// -----------------------------------------------------
+// POST
+// -----------------------------------------------------
+
 export const apiPost = <T = any>(
   endpoint: string,
   body?: unknown,
@@ -278,9 +290,16 @@ export const apiPost = <T = any>(
   return apiClient<T>(endpoint, {
     ...options,
     method: 'POST',
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body:
+      body !== undefined
+        ? JSON.stringify(body)
+        : undefined,
   });
 };
+
+// -----------------------------------------------------
+// PUT
+// -----------------------------------------------------
 
 export const apiPut = <T = any>(
   endpoint: string,
@@ -290,9 +309,16 @@ export const apiPut = <T = any>(
   return apiClient<T>(endpoint, {
     ...options,
     method: 'PUT',
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body:
+      body !== undefined
+        ? JSON.stringify(body)
+        : undefined,
   });
 };
+
+// -----------------------------------------------------
+// PATCH
+// -----------------------------------------------------
 
 export const apiPatch = <T = any>(
   endpoint: string,
@@ -302,9 +328,16 @@ export const apiPatch = <T = any>(
   return apiClient<T>(endpoint, {
     ...options,
     method: 'PATCH',
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body:
+      body !== undefined
+        ? JSON.stringify(body)
+        : undefined,
   });
 };
+
+// -----------------------------------------------------
+// DELETE
+// -----------------------------------------------------
 
 export const apiDelete = <T = any>(
   endpoint: string,
@@ -315,3 +348,4 @@ export const apiDelete = <T = any>(
     method: 'DELETE',
   });
 };
+
