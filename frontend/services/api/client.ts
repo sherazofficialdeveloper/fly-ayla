@@ -1,11 +1,10 @@
-
 /**
  * Fly Ayla Centralized API Client
  *
- * Backend API:
- * https://fly-ayla.up.railway.app/api
+ * Frontend: Next.js
+ * Backend: Railway
  *
- * Environment Variable:
+ * Vercel Environment Variable:
  * VITE_API_URL=https://fly-ayla.up.railway.app/api
  */
 
@@ -14,20 +13,42 @@
 // -----------------------------------------------------
 
 const getApiBaseUrl = (): string => {
-  const envUrl = import.meta.env.VITE_API_URL;
+  /**
+   * IMPORTANT:
+   * This project is Next.js, so import.meta.env is NOT used.
+   *
+   * We keep the existing VITE_API_URL variable name,
+   * but read it through process.env.
+   */
+  const envUrl =
+    typeof process !== 'undefined'
+      ? process.env.VITE_API_URL
+      : undefined;
 
-  if (!envUrl) {
-    throw new Error(
-      '[Fly Ayla API] VITE_API_URL environment variable is not configured.'
-    );
+  if (envUrl) {
+    return envUrl
+      .trim()
+      .replace(/\/+$/, '')
+      .replace(/\/api\/?$/, '');
   }
 
-  // Remove trailing slash
-  // and remove /api because the client adds /api automatically.
-  return envUrl
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/api\/?$/, '');
+  /**
+   * Production fallback.
+   *
+   * This prevents the deployed Vercel frontend from
+   * accidentally calling localhost.
+   */
+  if (
+    typeof process !== 'undefined' &&
+    process.env.NODE_ENV === 'production'
+  ) {
+    return 'https://fly-ayla.up.railway.app';
+  }
+
+  /**
+   * Local development fallback.
+   */
+  return 'http://127.0.0.1:5000';
 };
 
 const BASE_URL = getApiBaseUrl();
@@ -47,9 +68,14 @@ export const setAccessToken = (token: string | null): void => {
 
   try {
     if (token) {
-      localStorage.setItem('fly_ayla_access_token', token);
+      localStorage.setItem(
+        'fly_ayla_access_token',
+        token
+      );
     } else {
-      localStorage.removeItem('fly_ayla_access_token');
+      localStorage.removeItem(
+        'fly_ayla_access_token'
+      );
     }
   } catch {
     // Ignore localStorage errors
@@ -93,8 +119,10 @@ interface RequestOptions extends RequestInit {
 // ENDPOINT NORMALIZER
 // -----------------------------------------------------
 
-const normalizeEndpoint = (endpoint: string): string => {
-  // If a complete URL is provided, use it directly.
+const normalizeEndpoint = (
+  endpoint: string
+): string => {
+  // Complete external URL
   if (/^https?:\/\//i.test(endpoint)) {
     return endpoint;
   }
@@ -102,15 +130,17 @@ const normalizeEndpoint = (endpoint: string): string => {
   let normalizedEndpoint = endpoint.trim();
 
   if (!normalizedEndpoint.startsWith('/')) {
-    normalizedEndpoint = `/${normalizedEndpoint}`;
+    normalizedEndpoint =
+      `/${normalizedEndpoint}`;
   }
 
-  // Make sure /api is present exactly once.
+  // Add /api exactly once
   if (
     normalizedEndpoint !== '/api' &&
     !normalizedEndpoint.startsWith('/api/')
   ) {
-    normalizedEndpoint = `/api${normalizedEndpoint}`;
+    normalizedEndpoint =
+      `/api${normalizedEndpoint}`;
   }
 
   return normalizedEndpoint;
@@ -129,11 +159,28 @@ export async function apiClient<T = any>(
   message?: string;
   error?: string;
 }> {
-  const normalizedEndpoint = normalizeEndpoint(endpoint);
+  const normalizedEndpoint =
+    normalizeEndpoint(endpoint);
 
-  const url = /^https?:\/\//i.test(normalizedEndpoint)
-    ? normalizedEndpoint
-    : `${BASE_URL}${normalizedEndpoint}`;
+  const url =
+    /^https?:\/\//i.test(normalizedEndpoint)
+      ? normalizedEndpoint
+      : `${BASE_URL}${normalizedEndpoint}`;
+
+  // ---------------------------------------------------
+  // DEBUG
+  // ---------------------------------------------------
+
+  if (
+    typeof window !== 'undefined' &&
+    process.env.NODE_ENV !== 'production'
+  ) {
+    console.log(
+      '[Fly Ayla API]',
+      options.method || 'GET',
+      url
+    );
+  }
 
   // ---------------------------------------------------
   // HEADERS
@@ -150,8 +197,12 @@ export async function apiClient<T = any>(
 
   const currentToken = getAccessToken();
 
-  if (currentToken && !options.skipAuth) {
-    headers.Authorization = `Bearer ${currentToken}`;
+  if (
+    currentToken &&
+    !options.skipAuth
+  ) {
+    headers.Authorization =
+      `Bearer ${currentToken}`;
   }
 
   // ---------------------------------------------------
@@ -164,16 +215,20 @@ export async function apiClient<T = any>(
     credentials: 'include',
   };
 
-  // skipAuth is our custom option.
-  // It must not be passed to fetch().
-  delete (fetchOptions as RequestOptions).skipAuth;
+  // Remove custom option before fetch()
+  delete (
+    fetchOptions as RequestOptions
+  ).skipAuth;
 
   try {
     // -------------------------------------------------
     // MAIN REQUEST
     // -------------------------------------------------
 
-    let response = await fetch(url, fetchOptions);
+    let response = await fetch(
+      url,
+      fetchOptions
+    );
 
     // -------------------------------------------------
     // TOKEN REFRESH
@@ -182,20 +237,29 @@ export async function apiClient<T = any>(
     if (
       response.status === 401 &&
       !options.skipAuth &&
-      !normalizedEndpoint.includes('/auth/login') &&
-      !normalizedEndpoint.includes('/auth/register') &&
-      !normalizedEndpoint.includes('/auth/refresh')
+      !normalizedEndpoint.includes(
+        '/auth/login'
+      ) &&
+      !normalizedEndpoint.includes(
+        '/auth/register'
+      ) &&
+      !normalizedEndpoint.includes(
+        '/auth/refresh'
+      )
     ) {
       try {
-        const refreshUrl = `${BASE_URL}/api/auth/refresh`;
+        const refreshUrl =
+          `${BASE_URL}/api/auth/refresh`;
 
-        const refreshResponse = await fetch(refreshUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-        });
+        const refreshResponse =
+          await fetch(refreshUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+            credentials: 'include',
+          });
 
         if (refreshResponse.ok) {
           const refreshData =
@@ -229,9 +293,10 @@ export async function apiClient<T = any>(
     // RESPONSE
     // -------------------------------------------------
 
-    const data = await response
-      .json()
-      .catch(() => ({}));
+    const data =
+      await response
+        .json()
+        .catch(() => ({}));
 
     if (!response.ok) {
       return {
@@ -249,9 +314,13 @@ export async function apiClient<T = any>(
     return data;
   } catch (error: any) {
     const isNetworkError =
-      error?.message?.includes('Failed to fetch') ||
+      error?.message?.includes(
+        'Failed to fetch'
+      ) ||
       error?.name === 'TypeError' ||
-      error?.message?.includes('NetworkError');
+      error?.message?.includes(
+        'NetworkError'
+      );
 
     return {
       success: false,
@@ -272,10 +341,13 @@ export const apiGet = <T = any>(
   endpoint: string,
   options: RequestOptions = {}
 ) => {
-  return apiClient<T>(endpoint, {
-    ...options,
-    method: 'GET',
-  });
+  return apiClient<T>(
+    endpoint,
+    {
+      ...options,
+      method: 'GET',
+    }
+  );
 };
 
 // -----------------------------------------------------
@@ -287,14 +359,17 @@ export const apiPost = <T = any>(
   body?: unknown,
   options: RequestOptions = {}
 ) => {
-  return apiClient<T>(endpoint, {
-    ...options,
-    method: 'POST',
-    body:
-      body !== undefined
-        ? JSON.stringify(body)
-        : undefined,
-  });
+  return apiClient<T>(
+    endpoint,
+    {
+      ...options,
+      method: 'POST',
+      body:
+        body !== undefined
+          ? JSON.stringify(body)
+          : undefined,
+    }
+  );
 };
 
 // -----------------------------------------------------
@@ -306,14 +381,17 @@ export const apiPut = <T = any>(
   body?: unknown,
   options: RequestOptions = {}
 ) => {
-  return apiClient<T>(endpoint, {
-    ...options,
-    method: 'PUT',
-    body:
-      body !== undefined
-        ? JSON.stringify(body)
-        : undefined,
-  });
+  return apiClient<T>(
+    endpoint,
+    {
+      ...options,
+      method: 'PUT',
+      body:
+        body !== undefined
+          ? JSON.stringify(body)
+          : undefined,
+    }
+  );
 };
 
 // -----------------------------------------------------
@@ -325,14 +403,17 @@ export const apiPatch = <T = any>(
   body?: unknown,
   options: RequestOptions = {}
 ) => {
-  return apiClient<T>(endpoint, {
-    ...options,
-    method: 'PATCH',
-    body:
-      body !== undefined
-        ? JSON.stringify(body)
-        : undefined,
-  });
+  return apiClient<T>(
+    endpoint,
+    {
+      ...options,
+      method: 'PATCH',
+      body:
+        body !== undefined
+          ? JSON.stringify(body)
+          : undefined,
+    }
+  );
 };
 
 // -----------------------------------------------------
@@ -343,9 +424,11 @@ export const apiDelete = <T = any>(
   endpoint: string,
   options: RequestOptions = {}
 ) => {
-  return apiClient<T>(endpoint, {
-    ...options,
-    method: 'DELETE',
-  });
+  return apiClient<T>(
+    endpoint,
+    {
+      ...options,
+      method: 'DELETE',
+    }
+  );
 };
-
